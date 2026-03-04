@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
 const dotenv = require('dotenv');
-let appInsights = require('applicationinsights');
 
 const envFile = process.env.NODE_ENV === 'development' ? '.env.development' : '.env';
 dotenv.config({ path: envFile });
@@ -18,20 +17,6 @@ admin.initializeApp({
 
 const db = admin.firestore();
 const app = express();
-
-appInsights.setup(process.env.APPLICATIONINSIGHTS_CONNECTION_STRING)
-  .setAutoCollectRequests(true)
-  .setAutoCollectPerformance(true, true)
-  .setAutoCollectExceptions(true)
-  .setAutoCollectDependencies(true)
-  .setAutoCollectConsole(true, false)
-  .setAutoCollectPreAggregatedMetrics(true)
-  .setSendLiveMetrics(false)
-  .setInternalLogging(false, true)
-  .enableWebInstrumentation(false)
-  .start();
-
-const telemetryClient = appInsights.defaultClient;
 
 // Middleware
 app.use(cors());
@@ -49,7 +34,7 @@ app.get('/tasks', async (req, res) => {
         ...doc.data()
       });
     });
-    telemetryClient.trackEvent({ name: 'GetTasksSuccess', properties: { count: tasks.length } });
+    
     res.json(tasks);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -70,8 +55,7 @@ app.post('/tasks', async (req, res) => {
     };
     
     await taskRef.set(task);
-
-    telemetryClient.trackEvent({ name: 'TaskCreated', properties: { id: task.id, title: task.title } });
+    
     res.status(201).json(task);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -88,14 +72,12 @@ app.patch('/tasks/:id', async (req, res) => {
     const task = await taskRef.get();
     
     if (!task.exists) {
-      telemetryClient.trackEvent({ name: 'TaskUpdateNotFound', properties: { id } });
       return res.status(404).json({ error: 'Task not found' });
     }
     
     await taskRef.update(updates);
     
     const updatedTask = await taskRef.get();
-    telemetryClient.trackEvent({ name: 'TaskUpdated', properties: { id: updatedTask.id } });
     res.json({
       id: updatedTask.id,
       ...updatedTask.data()
@@ -114,14 +96,10 @@ app.delete('/tasks/:id', async (req, res) => {
     const task = await taskRef.get();
     
     if (!task.exists) {
-      telemetryClient.trackEvent({ name: 'TaskDeleteNotFound', properties: { id } });
       return res.status(404).json({ error: 'Task not found' });
     }
     
     await taskRef.delete();
-
-    telemetryClient.trackEvent({ name: 'TaskDeleted', properties: { id } });
-
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });
