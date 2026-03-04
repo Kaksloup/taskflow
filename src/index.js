@@ -1,7 +1,7 @@
-const express = require('express');
-const cors = require('cors');
-const admin = require('firebase-admin');
-const dotenv = require('dotenv');
+import express from "express";
+import cors from "cors";
+import admin from "firebase-admin";
+import dotenv from "dotenv";
 
 const envFile = process.env.NODE_ENV === 'development' ? '.env.development' : '.env';
 dotenv.config({ path: envFile });
@@ -111,4 +111,4 @@ const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-module.exports = { app, server };
+export { app, server };
