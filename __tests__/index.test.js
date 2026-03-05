@@ -5,7 +5,11 @@ const { app, server } = await import('../src/index.js');
 describe('🚀 API Tasks - Tests Approfondis', () => {
 
     afterAll((done) => {
-        server.close(done);
+        if (server) {
+            server.close(done);
+        } else {
+            done();
+        }
     });
 
     describe('GET /tasks', () => {
@@ -26,6 +30,24 @@ describe('🚀 API Tasks - Tests Approfondis', () => {
             expect(res.status).toBe(201);
             expect(res.body).toHaveProperty('id');
             expect(res.body.completed).toBe(false);
+        });
+
+        it('❌ Rejeter une tâche sans title', async () => {
+            const res = await request(app)
+              .post('/tasks')
+              .send({});
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toBe('Title is required and must be a string');
+        });
+
+        it('❌ Rejeter un title trop long', async () => {
+            const res = await request(app)
+              .post('/tasks')
+              .send({ title: 'a'.repeat(501) });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toBe('Title must be between 1 and 500 characters');
         });
     });
 
