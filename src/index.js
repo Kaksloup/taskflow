@@ -82,6 +82,15 @@ const sanitizeUpdateData = (updates) => {
   return sanitized;
 };
 
+const formatTaskData = (doc) => {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    title: data.title,
+    completed: data.completed,
+    createdAt: data.createdAt?.toDate?.() ? data.createdAt.toDate().toISOString() : data.createdAt
+  };
+};
 
 app.get('/tasks', async (req, res) => {
   try {
@@ -103,10 +112,7 @@ app.get('/tasks', async (req, res) => {
     const tasks = [];
 
     tasksSnapshot.forEach(doc => {
-      tasks.push({
-        id: doc.id,
-        ...doc.data()
-      });
+      tasks.push(formatTaskData(doc));
     });
 
     res.json(tasks);
@@ -131,10 +137,7 @@ app.post('/tasks', validateTaskInput, async (req, res) => {
     await taskRef.set(task);
 
     const createdTask = await taskRef.get();
-    res.status(201).json({
-      id: createdTask.id,
-      ...createdTask.data()
-    });
+    res.status(201).json(formatTaskData(createdTask));
   } catch (error) {
     console.error('Error creating task:', error);
     res.status(500).json({ error: 'Failed to create task' });
@@ -166,16 +169,12 @@ app.patch('/tasks/:id', async (req, res) => {
     await taskRef.update(sanitizedUpdates);
 
     const updatedTask = await taskRef.get();
-    res.json({
-      id: updatedTask.id,
-      ...updatedTask.data()
-    });
+    res.json(formatTaskData(updatedTask));
   } catch (error) {
     console.error('Error updating task:', error);
     res.status(500).json({ error: 'Failed to update task' });
   }
 });
-
 
 app.delete('/tasks/:id', async (req, res) => {
   try {
