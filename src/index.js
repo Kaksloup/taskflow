@@ -105,6 +105,15 @@ const sanitizeUpdateData = (updates) => {
   return sanitized;
 };
 
+const formatTaskData = (doc) => {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    title: data.title,
+    completed: data.completed,
+    createdAt: data.createdAt?.toDate?.() ? data.createdAt.toDate().toISOString() : data.createdAt
+  };
+};
 
 app.get('/tasks', async (req, res) => {
   const startTime = Date.now();
@@ -127,10 +136,7 @@ app.get('/tasks', async (req, res) => {
     const tasks = [];
 
     tasksSnapshot.forEach(doc => {
-      tasks.push({
-        id: doc.id,
-        ...doc.data()
-      });
+      tasks.push(formatTaskData(doc));
     });
 
     if (telemetryClient) {
@@ -203,10 +209,7 @@ app.post('/tasks', validateTaskInput, async (req, res) => {
       });
     }
 
-    res.status(201).json({
-      id: createdTask.id,
-      ...createdTask.data()
-    });
+    res.status(201).json(formatTaskData(createdTask));
   } catch (error) {
     console.error('Error creating task:', error);
 
@@ -276,10 +279,7 @@ app.patch('/tasks/:id', async (req, res) => {
       });
     }
 
-    res.json({
-      id: updatedTask.id,
-      ...updatedTask.data()
-    });
+    res.json(formatTaskData(updatedTask));
   } catch (error) {
     console.error('Error updating task:', error);
 
@@ -296,7 +296,6 @@ app.patch('/tasks/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to update task' });
   }
 });
-
 
 app.delete('/tasks/:id', async (req, res) => {
   const startTime = Date.now();
