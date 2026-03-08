@@ -4,9 +4,32 @@ import admin from "firebase-admin";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import appInsights from "applicationinsights";
 
 const envFile = process.env.NODE_ENV === 'development' ? '.env.development' : '.env';
 dotenv.config({ path: envFile });
+
+// Configure Application Insights (only in production and development, not in tests)
+let telemetryClient = null;
+if (process.env.NODE_ENV !== 'test' && process.env.APPLICATIONINSIGHTS_CONNECTION_STRING) {
+  appInsights.setup(process.env.APPLICATIONINSIGHTS_CONNECTION_STRING)
+    .setAutoCollectRequests(true)
+    .setAutoCollectPerformance(true, true)
+    .setAutoCollectExceptions(true)
+    .setAutoCollectDependencies(true)
+    .setAutoCollectConsole(true, false)
+    .setAutoCollectPreAggregatedMetrics(true)
+    .setSendLiveMetrics(process.env.NODE_ENV === 'production')
+    .setInternalLogging(false, process.env.NODE_ENV === 'development')
+    .setDistributedTracingMode(appInsights.DistributedTracingModes.AI_AND_W3C)
+    .enableWebInstrumentation(false)
+    .start();
+
+  telemetryClient = appInsights.defaultClient;
+  telemetryClient.context.tags[telemetryClient.context.keys.cloudRole] = "taskflow-api";
+
+  console.log('✅ Application Insights configured successfully');
+}
 
 // Initialize Firebase Admin
 admin.initializeApp({
@@ -84,6 +107,7 @@ const sanitizeUpdateData = (updates) => {
 
 
 app.get('/tasks', async (req, res) => {
+  const startTime = Date.now();
   try {
     // Pagination
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
@@ -109,14 +133,43 @@ app.get('/tasks', async (req, res) => {
       });
     });
 
+    if (telemetryClient) {
+      telemetryClient.trackMetric({
+        name: 'tasks_fetched',
+        value: tasks.length
+      });
+      telemetryClient.trackDependency({
+        target: 'Firestore',
+        name: 'GET tasks',
+        data: 'collection(tasks).get()',
+        duration: Date.now() - startTime,
+        resultCode: 200,
+        success: true,
+        dependencyTypeName: 'Firestore'
+      });
+    }
+
     res.json(tasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
+
+    if (telemetryClient) {
+      telemetryClient.trackException({
+        exception: error,
+        properties: {
+          operation: 'GET /tasks',
+          limit,
+          offset
+        }
+      });
+    }
+
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
 
 app.post('/tasks', validateTaskInput, async (req, res) => {
+  const startTime = Date.now();
   try {
     const { title } = req.body;
 
@@ -131,17 +184,48 @@ app.post('/tasks', validateTaskInput, async (req, res) => {
     await taskRef.set(task);
 
     const createdTask = await taskRef.get();
+
+    if (telemetryClient) {
+      telemetryClient.trackEvent({
+        name: 'TaskCreated',
+        properties: {
+          taskId: createdTask.id
+        }
+      });
+      telemetryClient.trackDependency({
+        target: 'Firestore',
+        name: 'CREATE task',
+        data: 'collection(tasks).doc().set()',
+        duration: Date.now() - startTime,
+        resultCode: 201,
+        success: true,
+        dependencyTypeName: 'Firestore'
+      });
+    }
+
     res.status(201).json({
       id: createdTask.id,
       ...createdTask.data()
     });
   } catch (error) {
     console.error('Error creating task:', error);
+
+    if (telemetryClient) {
+      telemetryClient.trackException({
+        exception: error,
+        properties: {
+          operation: 'POST /tasks',
+          title: req.body.title
+        }
+      });
+    }
+
     res.status(500).json({ error: 'Failed to create task' });
   }
 });
 
 app.patch('/tasks/:id', async (req, res) => {
+  const startTime = Date.now();
   try {
     const { id } = req.params;
 
@@ -160,24 +244,62 @@ app.patch('/tasks/:id', async (req, res) => {
     const task = await taskRef.get();
 
     if (!task.exists) {
+      if (telemetryClient) {
+        telemetryClient.trackEvent({
+          name: 'TaskNotFound',
+          properties: { operation: 'UPDATE', taskId: id }
+        });
+      }
       return res.status(404).json({ error: 'Task not found' });
     }
 
     await taskRef.update(sanitizedUpdates);
 
     const updatedTask = await taskRef.get();
+
+    if (telemetryClient) {
+      telemetryClient.trackEvent({
+        name: 'TaskUpdated',
+        properties: {
+          taskId: id,
+          updatedFields: Object.keys(sanitizedUpdates)
+        }
+      });
+      telemetryClient.trackDependency({
+        target: 'Firestore',
+        name: 'UPDATE task',
+        data: `collection(tasks).doc(${id}).update()`,
+        duration: Date.now() - startTime,
+        resultCode: 200,
+        success: true,
+        dependencyTypeName: 'Firestore'
+      });
+    }
+
     res.json({
       id: updatedTask.id,
       ...updatedTask.data()
     });
   } catch (error) {
     console.error('Error updating task:', error);
+
+    if (telemetryClient) {
+      telemetryClient.trackException({
+        exception: error,
+        properties: {
+          operation: 'PATCH /tasks/:id',
+          taskId: req.params.id
+        }
+      });
+    }
+
     res.status(500).json({ error: 'Failed to update task' });
   }
 });
 
 
 app.delete('/tasks/:id', async (req, res) => {
+  const startTime = Date.now();
   try {
     const { id } = req.params;
 
@@ -190,13 +312,47 @@ app.delete('/tasks/:id', async (req, res) => {
     const task = await taskRef.get();
 
     if (!task.exists) {
+      if (telemetryClient) {
+        telemetryClient.trackEvent({
+          name: 'TaskNotFound',
+          properties: { operation: 'DELETE', taskId: id }
+        });
+      }
       return res.status(404).json({ error: 'Task not found' });
     }
 
     await taskRef.delete();
+
+    if (telemetryClient) {
+      telemetryClient.trackEvent({
+        name: 'TaskDeleted',
+        properties: { taskId: id }
+      });
+      telemetryClient.trackDependency({
+        target: 'Firestore',
+        name: 'DELETE task',
+        data: `collection(tasks).doc(${id}).delete()`,
+        duration: Date.now() - startTime,
+        resultCode: 204,
+        success: true,
+        dependencyTypeName: 'Firestore'
+      });
+    }
+
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting task:', error);
+
+    if (telemetryClient) {
+      telemetryClient.trackException({
+        exception: error,
+        properties: {
+          operation: 'DELETE /tasks/:id',
+          taskId: req.params.id
+        }
+      });
+    }
+
     res.status(500).json({ error: 'Failed to delete task' });
   }
 });
@@ -220,15 +376,31 @@ let server;
 if (process.env.NODE_ENV !== 'test') {
   server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    if (telemetryClient) {
+      telemetryClient.trackEvent({
+        name: 'ServerStarted',
+        properties: {
+          port: PORT,
+          environment: process.env.NODE_ENV || 'production'
+        }
+      });
+    }
   });
 
   // Graceful shutdown
   process.on('SIGTERM', () => {
     console.log('SIGTERM signal received: closing HTTP server');
+    if (telemetryClient) {
+      telemetryClient.trackEvent({
+        name: 'ServerShutdown',
+        properties: { signal: 'SIGTERM' }
+      });
+      telemetryClient.flush();
+    }
     server.close(() => {
       console.log('HTTP server closed');
     });
   });
 }
 
-export { app, server };
+export { app, server, telemetryClient };
